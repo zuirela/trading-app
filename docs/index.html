@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Signal Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        header {
+            background-color: #1e88e5;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+        }
+        main {
+            max-width: 1000px;
+            margin: 1rem auto;
+            padding: 0 1rem;
+        }
+        .controls {
+            margin-bottom: 1rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        input[type="text"] {
+            padding: 0.5rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            padding: 0.5rem 1rem;
+            border: none;
+            background-color: #1e88e5;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #1565c0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 0.5rem;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f0f0f0;
+        }
+        tr.buy {
+            background-color: #e8f5e9;
+        }
+        tr.sell {
+            background-color: #ffebee;
+        }
+        .progress {
+            width: 100%;
+            background-color: #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+            height: 8px;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #1e88e5;
+        }
+        .small {
+            font-size: 0.8rem;
+            color: #666;
+        }
+        .scanner {
+            margin-top: 2rem;
+        }
+        .scanner ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        .scanner li {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Trading Signal Dashboard</h1>
+        <p>Real‑time RSI & MACD signals from IBKR data</p>
+    </header>
+    <main>
+        <section class="controls">
+            <label for="symbolInput">Lisää uusi kohde:</label>
+            <input id="symbolInput" type="text" placeholder="Esim. TSLA" />
+            <button id="addBtn">Lisää</button>
+            <button id="refreshBtn">Päivitä nyt</button>
+        </section>
+        <section>
+            <table id="signalsTable">
+                <thead>
+                    <tr>
+                        <th>Tikkeri</th>
+                        <th>Hinta</th>
+                        <th>RSI</th>
+                        <th>MACD</th>
+                        <th>Signal</th>
+                        <th>Valmius</th>
+                        <th>Aika</th>
+                        <th>Poista</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Data rows injected here -->
+                </tbody>
+            </table>
+        </section>
+        <section class="scanner">
+            <h2>Skanneri</h2>
+            <p>Tässä listattuna IBKR-scan ohjaaman haun perusteella esiin nousevat kohteet. Voit klikata kohteen nimeä lisätäksesi sen seurantalistaan.</p>
+            <ul id="scannerList"></ul>
+            <button id="scanBtn">Etsi ehdotuksia</button>
+        </section>
+    </main>
+    <script>
+        const API_BASE = '';
+
+        async function fetchSignals() {
+            try {
+                const res = await fetch(`${API_BASE}/signals`);
+                const data = await res.json();
+                updateTable(data);
+            } catch (err) {
+                console.error('Virhe signaalien haussa:', err);
+            }
+        }
+
+        function computeReadiness(row) {
+            // Compute readiness score (0 to 1) based on RSI proximity to 30 or 70
+            const rsi = row.rsi;
+            const buyDist = Math.max(0, rsi - 30);
+            const sellDist = Math.max(0, 70 - rsi);
+            // Distance to nearest threshold (lower is closer)
+            const dist = Math.min(buyDist, sellDist);
+            // Scale to [0,1] where 1 is ready (dist=0) and 0 is far (dist>=20)
+            const score = Math.max(0, 1 - dist / 20);
+            return score;
+        }
+
+        function updateTable(data) {
+            const tbody = document.querySelector('#signalsTable tbody');
+            tbody.innerHTML = '';
+            data.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.classList.toggle('buy', row.signal === 'BUY');
+                tr.classList.toggle('sell', row.signal === 'SELL');
+                tr.innerHTML = `
+                    <td>${row.symbol}</td>
+                    <td>${row.price.toFixed(2)}</td>
+                    <td>${row.rsi !== null ? row.rsi.toFixed(2) : '-'}</td>
+                    <td>${row.macd !== null ? row.macd.toFixed(3) : '-'}</td>
+                    <td>${row.signal || '-'}</td>
+                    <td><div class="progress"><div class="progress-bar" style="width: ${computeReadiness(row) * 100}%"></div></div></td>
+                    <td class="small">${row.time}</td>
+                    <td><button data-symbol="${row.symbol}" class="removeBtn">X</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+            // Attach event listeners for remove buttons
+            document.querySelectorAll('.removeBtn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const sym = e.target.getAttribute('data-symbol');
+                    await fetch(`${API_BASE}/watch/${sym}`, { method: 'DELETE' });
+                    fetchSignals();
+                });
+            });
+        }
+
+        async function addSymbol() {
+            const input = document.getElementById('symbolInput');
+            const sym = input.value.trim().toUpperCase();
+            if (!sym) return;
+            await fetch(`${API_BASE}/watch/${sym}`, { method: 'POST' });
+            input.value = '';
+            fetchSignals();
+        }
+
+        async function scanSuggestions() {
+            const list = document.getElementById('scannerList');
+            list.innerHTML = '<li>Ladataan...</li>';
+            try {
+                const res = await fetch(`${API_BASE}/scan?limit=10`);
+                const data = await res.json();
+                list.innerHTML = '';
+                data.forEach(item => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<strong>${item.symbol}</strong>: ${item.description}`;
+                    li.style.cursor = 'pointer';
+                    li.addEventListener('click', async () => {
+                        await fetch(`${API_BASE}/watch/${item.symbol}`, { method: 'POST' });
+                        fetchSignals();
+                    });
+                    list.appendChild(li);
+                });
+            } catch (err) {
+                list.innerHTML = '<li>Virhe skannerissa</li>';
+                console.error(err);
+            }
+        }
+
+        document.getElementById('addBtn').addEventListener('click', addSymbol);
+        document.getElementById('symbolInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addSymbol();
+        });
+        document.getElementById('refreshBtn').addEventListener('click', fetchSignals);
+        document.getElementById('scanBtn').addEventListener('click', scanSuggestions);
+
+        // Initial load and periodic refresh
+        fetchSignals();
+        setInterval(fetchSignals, 15000);
+    </script>
+</body>
+</html>
