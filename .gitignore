@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+.env
+trading_app.zip
+trading_app_updated.zip
